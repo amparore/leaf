@@ -195,6 +195,11 @@ def eval_whitebox_classifier(R, g, EX, StdX, NormV, x0, label_x0, bb_classifier,
 
 ###########################################################################################
 
+def hinge_loss(x):
+    return max(0, 1 - x)
+
+###########################################################################################
+
 class LEAF:
     def __init__(self, bb_classifier, X, class_names, explanation_samples=5000):
         self.bb_classifier = bb_classifier
@@ -218,11 +223,14 @@ class LEAF:
 	                                         # sample_using_pca=False, 
 	                                         # weight_classifier_labels=False,
 	                                         random_state=10)
+        self.metrics = None
+        self.lime_avg_jaccard_bin = self.lime_std_jaccard_bin = None
+        self.shap_avg_jaccard_bin = self.shap_std_jaccard_bin = None
 
 
     def explain_instance(self, instance, num_reps=50, num_features=4, 
                          neighborhood_samples=10000, use_cov_matrix=False, 
-                         verbose=False):
+                         verbose=False, figure_dir=None):
         npEX = np.array(self.EX)
         cls_proba = self.bb_classifier.predict_proba
 
@@ -258,14 +266,14 @@ class LEAF:
             R.rnum, R.prob_x0 = rnum, prob_x0
 
             # Explain the instance x0 with LIME
-            lime_expl = LIMEEXPL.explain_instance(np.array(x0), cls_proba, 
-                                                  num_features=num_features, 
-                                                  top_labels=1, 
-                                                  num_samples=self.explanation_samples)
+            lime_expl = self.LIMEEXPL.explain_instance(np.array(x0), cls_proba, 
+                                                       num_features=num_features, 
+                                                       top_labels=1, 
+                                                       num_samples=self.explanation_samples)
 
             # Explain x0 using SHAP
-            shap_phi = SHAPEXPL.shap_values(x0, l1_reg="num_features(10)")
-            shap_phi0 = SHAPEXPL.expected_value
+            shap_phi = self.SHAPEXPL.shap_values(x0, l1_reg="num_features(10)")
+            shap_phi0 = self.SHAPEXPL.expected_value
 
             # Take only the top @num_features from shap_phi
             argtop = np.argsort(np.abs(shap_phi[0]))
@@ -274,7 +282,7 @@ class LEAF:
 
             # Recover both the LIME and the SHAP classifiers
             R.lime_g = get_LIME_classifier(lime_expl, label_x0, x0)
-            R.shap_g = get_SHAP_classifier(label_x0, shap_phi, shap_phi0, x0, EX)
+            R.shap_g = get_SHAP_classifier(label_x0, shap_phi, shap_phi0, x0, self.EX)
 
             #----------------------------------------------------------
             # Evaluate the white box classifiers
@@ -325,13 +333,16 @@ class LEAF:
         # Jaccard distances between the various explanations (stability)
         lime_jaccard_mat = 1 - pdist(np.stack(rows.lime_bin_expl, axis=0), 'jaccard')
         shap_jaccard_mat = 1 - pdist(np.stack(rows.shap_bin_expl, axis=0), 'jaccard')
-        lime_avg_jaccard_bin, lime_std_jaccard_bin = np.mean(lime_jaccard_mat), np.std(lime_jaccard_mat)
-        shap_avg_jaccard_bin, shap_std_jaccard_bin = np.mean(shap_jaccard_mat), np.std(shap_jaccard_mat)
+        self.lime_avg_jaccard_bin, self.lime_std_jaccard_bin = np.mean(lime_jaccard_mat), np.std(lime_jaccard_mat)
+        self.shap_avg_jaccard_bin, self.shap_std_jaccard_bin = np.mean(shap_jaccard_mat), np.std(shap_jaccard_mat)
 
         # LIME/SHAP explanation comparisons
         lime_shap_jaccard_mat = 1 - cdist(np.stack(rows.lime_bin_expl, axis=0), 
                                           np.stack(rows.shap_bin_expl, axis=0), 'jaccard')
         lime_shap_avg_jaccard_bin, lime_shap_std_jaccard_bin = np.mean(lime_shap_jaccard_mat), np.std(lime_shap_jaccard_mat)
+
+        # store the metrics for later use
+        self.metrics = rows
 
         def leaf_plot(stability, method):
             fig, ax1 = plt.subplots(figsize=(6, 2.2))
@@ -372,15 +383,12 @@ class LEAF:
             plt.show()
 
         # Show LIME explanation
-        # lime_expl = LIMEEXPL.explain_instance(np.array(x0), cls_proba, 
-        #                                       num_features=num_features, 
-        #                                       top_labels=1, num_samples=self.explanation_samples)
+        display(HTML("<h2>LIME</h2>"))
         lime_expl.show_in_notebook(show_table=True, show_all=False)
         leaf_plot(lime_jaccard_mat, 'lime')
 
         # Show SHAP explanation
-        # shap_phi = SHAPEXPL.shap_values(x0, l1_reg="num_features(10)")
-        # shap_phi0 = SHAPEXPL.expected_value
+        display(HTML("<h2>SHAP</h2>"))
         display(shap.force_plot(shap_phi0[label_x0], shap_phi[label_x0], x0))
         leaf_plot(shap_jaccard_mat, 'shap')
 
@@ -427,3 +435,64 @@ class LEAF:
             for k in range(len(shap_phi)):
                 shap_phi[k][ argtop[:(F-num_features)] ] = 0
             display(shap.force_plot(shap_phi0[shap_label_x1], shap_phi[shap_label_x1], shap_x1))
+
+    def get_R(self):
+        return self.metrics
+
+    #------------------------------------------#
+
+    def get_lime_stability(self):
+        assert self.metrics is not None
+        return self.lime_avg_jaccard_bin
+
+    def get_lime_local_concordance(self):
+        assert self.metrics is not None
+        return hinge_loss(np.mean(self.metrics.lime_local_discr))
+
+    def get_lime_fidelity(self):
+        assert self.metrics is not None
+        return np.mean(self.metrics.lime_fidelity_f1)
+
+    def get_lime_prescriptivity(self):
+        assert self.metrics is not None
+        return hinge_loss(np.mean(2 * np.abs(self.metrics.lime_boundary_discr)))
+
+    #------------------------------------------#
+
+    def get_shap_stability(self):
+        assert self.metrics is not None
+        return self.shap_avg_jaccard_bin
+
+    def get_shap_local_concordance(self):
+        assert self.metrics is not None
+        return hinge_loss(np.mean(self.metrics.shap_local_discr))
+
+    def get_shap_fidelity(self):
+        assert self.metrics is not None
+        return np.mean(self.metrics.shap_fidelity_f1)
+
+    def get_shap_prescriptivity(self):
+        assert self.metrics is not None
+        return hinge_loss(np.mean(2 * np.abs(self.metrics.shap_boundary_discr)))
+
+    #------------------------------------------#
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
