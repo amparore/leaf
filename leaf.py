@@ -26,19 +26,13 @@ from lime.lime_tabular import LimeTabularExplainer
 
 ###########################################################################################
 
-def train_rf(X, Y, n_estimators=50, max_depth=5, rf=None, verbose=True):
+def train_model(X, Y, model, verbose=True):
     # separate train and test sets
     train, test, labels_train, labels_test = (
         sklearn.model_selection.train_test_split(X, Y, train_size=0.80, test_size=0.20,
                                                  random_state=1234))
 
-    # train a random forest classifier on the training set
-    if rf is None:
-        rf = sklearn.ensemble.RandomForestClassifier(n_estimators=n_estimators, 
-                                                     max_depth=max_depth,
-                                                     random_state=99)
-
-    cls_type = rf.__class__.__name__
+    cls_type = model.__class__.__name__
     use_weights = not (cls_type in ['MLPClassifier', 'KNeighborsClassifier', 'GaussianProcessClassifier'])
 
     if use_weights:
@@ -46,12 +40,12 @@ def train_rf(X, Y, n_estimators=50, max_depth=5, rf=None, verbose=True):
         nF = len(labels_train) - nT
         weights_train = ((labels_train==False)*nT + (labels_train==True)*nF) / len(labels_train)
     
-        rf.fit(train, labels_train, sample_weight=weights_train)
+        model.fit(train, labels_train, sample_weight=weights_train)
     else:
-        rf.fit(train, labels_train)
+        model.fit(train, labels_train)
     
     # verify the classifier on the test set
-    pred_test = rf.predict(test)
+    pred_test = model.predict(test)
     # print(pred_test, type(pred_test), pred_test.dtype)
     # pred_test = pred_test > 0.5 if str(pred_test.dtype).startswith('float') else pred_test
     if use_weights:
@@ -64,11 +58,11 @@ def train_rf(X, Y, n_estimators=50, max_depth=5, rf=None, verbose=True):
         print('  *', cls_type, 'accuracy:', 
               sklearn.metrics.accuracy_score(labels_test, pred_test))
 
-    pred_X = rf.predict(X)
+    pred_X = model.predict(X)
     #print(classification_report(Y, pred_X))
     if verbose:
         print(classification_report(labels_test, pred_test))
-    return rf
+    return model
 
 ###########################################################################################
 
