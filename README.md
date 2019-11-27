@@ -2,7 +2,7 @@
 A Python framework for the quantitative evaluation of eXplainable AI methods.
 
 *LEAF* requires the following Python libraries to work: 
-> numpy, pandas, lime, shap
+> numpy, pandas, lime, shap, imblearn, tabulate
 
 The *LEAF* project directory contains the following files:
  
