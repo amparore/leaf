@@ -68,8 +68,8 @@ def train_model(X, Y, model, verbose=True):
 
 # Build the linear classifier of a LIME explainer
 def get_LIME_classifier(lime_expl, label_x0, x0):
-    features_weights = [x[1] for x in lime_expl.as_list(label=label_x0)]
-    features_indices = [x[0] for x in lime_expl.local_exp[label_x0] ]    # feature' indices
+    features_weights = [x[1] for x in lime_expl.local_exp[label_x0]]
+    features_indices = [x[0] for x in lime_expl.local_exp[label_x0]]    # feature' indices
     intercept = lime_expl.intercept[label_x0]
     coef = np.zeros(len(x0))
     coef[features_indices] = features_weights
@@ -238,7 +238,7 @@ class LEAF:
 
         # Get the output of the black-box classifier on x0
         output = cls_proba([x0])[0]
-        label_x0 = 1 if output[1] >= output[0] else 0
+        label_x0 = np.argmax(output)
         prob_x0 = output[label_x0]
         prob_x0_F, prob_x0_T = output[0], output[1]
         if verbose:
